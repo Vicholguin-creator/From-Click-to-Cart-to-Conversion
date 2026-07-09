@@ -1,0 +1,5 @@
+data/
+*.parquet
+.ipynb_checkpoints/
+.idea/
+__pycache__/
