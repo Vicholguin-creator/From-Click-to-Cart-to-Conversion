@@ -6,3 +6,5 @@ __pycache__/
 src/models/*.joblib
 .agents/
 .claude/
+notebooks/*.png
+src/models/*.json
