@@ -1,6 +1,7 @@
 """
 App de productivizacion - Sistema de intencion y recuperacion retail.
 Dos modos: exploracion individual (sliders) y prediccion por lotes.
+La prediccion por lotes acepta datos propios via carga de CSV.
 """
 import streamlit as st
 import numpy as np
@@ -45,11 +46,41 @@ def asignar_arquetipo(df):
     clusters = kmeans.predict(scaler.transform(x))
     return pd.Series(clusters, index=df.index).map(NOMBRES)
 
+def procesar_lote(muestra):
+    """Aplica ambos modelos a un DataFrame y devuelve resultados."""
+    muestra = muestra.copy()
+    proba_lote = xgb.predict_proba(muestra[XGB_FEATURES].fillna(0))[:, 1]
+    muestra["prob_compra"] = proba_lote
+    muestra["intervenir"] = np.where(proba_lote >= UMBRAL, "SI", "no")
+    muestra["arquetipo"] = asignar_arquetipo(muestra)
+    muestra["accion"] = muestra["arquetipo"].map(ACCIONES)
+    return muestra
+
+def mostrar_resultados(muestra):
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Sesiones procesadas", f"{len(muestra):,}")
+    c2.metric("Alta intencion", f"{(muestra.intervenir=='SI').sum():,}")
+    c3.metric("% a intervenir", f"{100*(muestra.intervenir=='SI').mean():.1f}%")
+    st.write("**Distribucion de arquetipos:**")
+    st.bar_chart(muestra["arquetipo"].value_counts())
+    st.write("**Lista priorizada de intervencion:**")
+    cols_tabla = ["prob_compra", "intervenir", "arquetipo", "accion",
+                  "n_events", "n_carts", "remove_rate", "price_avg"]
+    tabla = muestra.sort_values("prob_compra", ascending=False)[cols_tabla].head(50)
+    tabla["prob_compra"] = (tabla["prob_compra"] * 100).round(1)
+    st.dataframe(tabla, width="stretch")
+    csv = muestra[["prob_compra", "intervenir", "arquetipo", "accion"]].to_csv(index=False)
+    st.download_button("Descargar resultados (CSV)", csv,
+                       "predicciones_lote.csv", "text/csv")
+
 st.title("Prediccion de intencion de compra y arquetipo de abandono")
 st.caption("TFM - From Click to Cart to Conversion - Dataset REES46")
 
 tab1, tab2 = st.tabs(["Exploracion individual", "Prediccion por lotes (negocio)"])
 
+# ============================================================
+# TAB 1 - SLIDERS
+# ============================================================
 with tab1:
     col_in, col_out = st.columns([1, 1])
     with col_in:
@@ -107,37 +138,58 @@ with tab1:
         if remove_rate == 0:
             st.caption("Esta sesion no edito el carrito - la senal de abandono mas fuerte.")
 
+# ============================================================
+# TAB 2 - LOTES (con carga de CSV)
+# ============================================================
 with tab2:
     st.subheader("Procesamiento por lotes")
-    st.write("Simula el uso real: cargar las sesiones de un periodo y obtener "
-             "una lista priorizada. Usa una muestra del conjunto de validacion "
-             "(datos que el modelo NO vio en entrenamiento).")
-    n_muestra = st.select_slider("Tamano de la muestra",
-                                 options=[100, 500, 1000, 5000], value=1000)
-    if st.button("Procesar lote"):
-        valid = cargar_validacion()
-        muestra = valid.sample(n=min(n_muestra, len(valid)), random_state=1).copy()
-        proba_lote = xgb.predict_proba(muestra[XGB_FEATURES].fillna(0))[:, 1]
-        muestra["prob_compra"] = proba_lote
-        muestra["intervenir"] = np.where(proba_lote >= UMBRAL, "SI", "no")
-        muestra["arquetipo"] = asignar_arquetipo(muestra)
-        muestra["accion"] = muestra["arquetipo"].map(ACCIONES)
-        st.divider()
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Sesiones procesadas", f"{len(muestra):,}")
-        c2.metric("Alta intencion", f"{(muestra.intervenir=='SI').sum():,}")
-        c3.metric("% a intervenir", f"{100*(muestra.intervenir=='SI').mean():.1f}%")
-        st.write("**Distribucion de arquetipos:**")
-        st.bar_chart(muestra["arquetipo"].value_counts())
-        st.write("**Lista priorizada de intervencion:**")
-        tabla = muestra.sort_values("prob_compra", ascending=False)[
-            ["prob_compra", "intervenir", "arquetipo", "accion",
-             "n_events", "n_carts", "remove_rate", "price_avg"]].head(50)
-        tabla["prob_compra"] = (tabla["prob_compra"] * 100).round(1)
-        st.dataframe(tabla, use_container_width=True)
-        csv = muestra[["prob_compra", "intervenir", "arquetipo", "accion"]].to_csv(index=False)
-        st.download_button("Descargar resultados (CSV)", csv,
-                           "predicciones_lote.csv", "text/csv")
+
+    modo = st.radio("Origen de los datos:",
+                    ["Muestra de validacion (demo)", "Subir mi propio CSV"])
+
+    if modo == "Muestra de validacion (demo)":
+        st.write("Muestra del conjunto de validacion (datos que el modelo NO vio "
+                 "en entrenamiento).")
+        n_muestra = st.select_slider("Tamano de la muestra",
+                                     options=[100, 500, 1000, 5000], value=1000)
+        if st.button("Procesar lote"):
+            valid = cargar_validacion()
+            muestra = valid.sample(n=min(n_muestra, len(valid)), random_state=1)
+            resultado = procesar_lote(muestra)
+            st.divider()
+            mostrar_resultados(resultado)
+
+    else:
+        st.write("Sube un CSV con las sesiones de tu negocio. Debe contener las "
+                 "columnas que el modelo necesita. Descarga la plantilla para ver "
+                 "el formato exacto.")
+
+        # Plantilla de ejemplo
+        plantilla = pd.DataFrame([{
+            "n_events": 8, "n_carts": 3, "n_categories": 3, "price_avg": 15.0,
+            "price_max": 20.0, "price_std": 5.0, "brand_null_ratio": 0.0,
+            "hour": 14, "dayofweek": 3, "is_weekend": 0, "remove_rate": 0.33,
+            "products_per_event": 0.625, "brands_per_product": 0.4,
+            "log_duration": 5.9, "log_events": 2.2,
+        }])
+        st.download_button("Descargar plantilla CSV",
+                           plantilla.to_csv(index=False),
+                           "plantilla_sesiones.csv", "text/csv")
+
+        archivo = st.file_uploader("Sube tu archivo CSV", type=["csv"])
+        if archivo is not None:
+            try:
+                datos = pd.read_csv(archivo)
+                faltan = [c for c in XGB_FEATURES if c not in datos.columns]
+                if faltan:
+                    st.error(f"Al CSV le faltan columnas: {faltan}")
+                else:
+                    st.success(f"Archivo cargado: {len(datos):,} sesiones.")
+                    resultado = procesar_lote(datos)
+                    st.divider()
+                    mostrar_resultados(resultado)
+            except Exception as e:
+                st.error(f"Error al leer el archivo: {e}")
 
 st.divider()
 st.caption("Umbral: 0.33 (optimo de negocio). Modelo 1: XGBoost - Modelo 2: K-Means.")
