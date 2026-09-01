@@ -1,0 +1,10 @@
+data/
+*.parquet
+.ipynb_checkpoints/
+.idea/
+__pycache__/
+src/models/*.joblib
+.agents/
+.claude/
+notebooks/*.png
+src/models/*.json
