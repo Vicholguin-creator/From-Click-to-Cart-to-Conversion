@@ -8,3 +8,4 @@ src/models/*.joblib
 .claude/
 notebooks/*.png
 src/models/*.json
+.DS_Store
