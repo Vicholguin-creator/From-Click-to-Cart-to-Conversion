@@ -20,6 +20,7 @@ Los datos provienen del dataset público REES46 (eCommerce Events History in Cos
 Incluye una aplicación interactiva (Streamlit) que integra los modelos y permite tanto exploración individual como predicción por lotes con carga de datos externos.
 
 ## Estructura del repositorio
+```
 ├── src/
 │ ├── etl/ # Ingesta, sesionización y análisis exploratorio
 │ ├── features/ # Construcción del dataset de modelado
@@ -28,7 +29,7 @@ Incluye una aplicación interactiva (Streamlit) que integra los modelos y permit
 ├── notebooks/ # Análisis exploratorio
 ├── environment.yml # Entorno conda reproducible
 └── README.md
-
+```
 
 ## Reproducibilidad
 
